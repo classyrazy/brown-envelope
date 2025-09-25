@@ -44,3 +44,45 @@ export const analyseAndSignInWithDetails = `
 
   IMPORTANT: Only return valid JSON with the exact fields specified above. Do not include any additional text or explanation.
 `
+
+export const submtApplicationRules = `Complete the job application submission by following these steps in order:
+
+      1. FIRST - Look for and click any of these submission buttons (in order of preference):
+         • "Submit Application" or "Submit"
+         • "Apply Now" or "Apply" 
+         • "Send Application"
+         • "Complete Application"
+         • "Finish" or "Done"
+         • "Continue" or "Next" (if it's the final step)
+         • "Proceed" or "Confirm"
+
+      2. BUTTON IDENTIFICATION - The button should be:
+         • Prominently placed (usually bottom right or center)
+         • Primary colored (blue, green, or brand color)
+         • NOT disabled/grayed out
+         • May have icons like ➤ → ✓ or similar
+
+      3. HANDLE DIFFERENT SCENARIOS:
+         • If you see a confirmation dialog, click "Yes" or "Confirm"
+         • If asked "Are you sure?", click "Yes" or "Submit"
+         • If there's a terms/privacy checkbox that's unchecked, check it first
+         • If the button is disabled, check for missing required fields or errors
+
+      4. AVOID CLICKING:
+         • "Cancel", "Back", "Previous", "Save Draft"
+         • Social media share buttons
+         • "Edit" or "Modify" buttons
+         • Navigation buttons that don't submit
+
+      5. MULTI-LANGUAGE SUPPORT - Also look for these international variants:
+         • "Enviar" (Spanish), "Soumettre" (French), "Absenden" (German)
+         • "送信" (Japanese), "提交" (Chinese), "Отправить" (Russian)
+         • "Invio" (Italian), "Verzenden" (Dutch), "Skicka" (Swedish)
+
+      6. IF NO OBVIOUS SUBMIT BUTTON - Look for:
+         • Buttons with icons: ➤, →, ✓, 📤
+         • The most prominent call-to-action button
+         • Buttons that are highlighted or have focus
+
+      Be precise and only click the button that will actually submit/complete the application.
+    `;

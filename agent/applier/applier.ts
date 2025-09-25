@@ -1,7 +1,8 @@
 
-import { analyseAndSignInWithDetails, extractJobDetailRules } from './rules.js';
-import { formPageAnalysis, Job, JobApplicationResult, PersonalInfo } from '../types.js';
+import { analyseAndSignInWithDetails, extractJobDetailRules, submtApplicationRules } from './rules.js';
+import { formPageAnalysis, Job, JobApplicationResult, JobProcessingResult, PersonalInfo } from '../types.js';
 import { getPersonalInfoFromEnv } from '../../utils/index.js';
+import { useApplierFiller, FieldMapping } from '../system/filler';
 
 export class JobApplier {
   private page: any;
@@ -10,38 +11,117 @@ export class JobApplier {
     this.page = page;
   }
 
-  async processJobApplication(job: Job, maxRetries = 2): Promise<void> {
+  async processJobApplication(job: Job, maxRetries = 2): Promise<JobProcessingResult> {
+    const startTime = new Date().toISOString();
+    const processingStart = Date.now();
     let currentRetry = 0;
+    let lastScreenshot = '';
+    let fieldsFilled: string[] = [];
+    let errorMessage = '';
+    let successMessage = '';
+    let description = '';
     
     while (currentRetry <= maxRetries) {
       try {
         console.log(`📍 Navigating to: ${job.job_url}`);
         await this.page.goto(job.job_url);
         
+        // Take initial screenshot
+        lastScreenshot = await this.takeScreenshot(`${job.job_title}-initial-${Date.now()}`);
+        
         // First, analyze the page to understand what we're dealing with
         const initialExtraction = await this.page.extract(extractJobDetailRules) as { extraction: string };
         console.log(`🔍 Initial page analysis:`, initialExtraction);
+        description = initialExtraction.extraction;
         
         // Handle different page types
         const result = await this.handlePageType(initialExtraction.extraction, job);
         
+        if (result.fieldsFilled) {
+          fieldsFilled = [...fieldsFilled, ...result.fieldsFilled];
+        }
+        
         if (result.success) {
           console.log(`✅ Successfully processed job: ${job.job_title}`);
-          break; // Exit retry loop on success
+          successMessage = `Application completed successfully after ${currentRetry + 1} attempt(s)`;
+          lastScreenshot = await this.takeScreenshot(`${job.job_title}-success-${Date.now()}`);
+          
+          return {
+            jobName: job.job_title,
+            jobLink: job.job_url,
+            status: 'success',
+            imageOfLastContact: lastScreenshot,
+            description,
+            successMessage,
+            fieldsFilled: [...new Set(fieldsFilled)], // Remove duplicates
+            errorMessage: '',
+            processingTimeMs: Date.now() - processingStart,
+            startTime,
+            endTime: new Date().toISOString()
+          };
         } else if (result.shouldRetry && currentRetry < maxRetries) {
           console.log(`🔄 Retrying... (${currentRetry + 1}/${maxRetries})`);
+          errorMessage = result.message || 'Unknown error, retrying';
           currentRetry++;
           await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
         } else {
           console.log(`⏭️ Skipping job after ${currentRetry + 1} attempts`);
-          break;
+          errorMessage = result.message || 'Max retries exceeded';
+          lastScreenshot = await this.takeScreenshot(`${job.job_title}-skipped-${Date.now()}`);
+          
+          return {
+            jobName: job.job_title,
+            jobLink: job.job_url,
+            status: 'skipped',
+            imageOfLastContact: lastScreenshot,
+            description,
+            successMessage: '',
+            fieldsFilled: [...new Set(fieldsFilled)],
+            errorMessage,
+            processingTimeMs: Date.now() - processingStart,
+            startTime,
+            endTime: new Date().toISOString()
+          };
         }
       } catch (error) {
         console.error(`Error in attempt ${currentRetry + 1}:`, error);
+        errorMessage = `Error: ${error instanceof Error ? error.message : 'Unknown error'}`;
         currentRetry++;
-        if (currentRetry > maxRetries) throw error;
+        
+        if (currentRetry > maxRetries) {
+          lastScreenshot = await this.takeScreenshot(`${job.job_title}-error-${Date.now()}`);
+          
+          return {
+            jobName: job.job_title,
+            jobLink: job.job_url,
+            status: 'error',
+            imageOfLastContact: lastScreenshot,
+            description: description || 'Failed to analyze page',
+            successMessage: '',
+            fieldsFilled: [...new Set(fieldsFilled)],
+            errorMessage,
+            processingTimeMs: Date.now() - processingStart,
+            startTime,
+            endTime: new Date().toISOString()
+          };
+        }
       }
     }
+
+    // Fallback return (shouldn't reach here)
+    return {
+      jobName: job.job_title,
+      jobLink: job.job_url,
+      status: 'error',
+      imageOfLastContact: lastScreenshot,
+      description: description || 'Unknown processing error',
+      successMessage: '',
+      fieldsFilled: [...new Set(fieldsFilled)],
+      errorMessage: errorMessage || 'Unexpected processing error',
+      processingTimeMs: Date.now() - processingStart,
+      startTime,
+      endTime: new Date().toISOString()
+    };
   }
 
   private async handlePageType(extract: string, job: Job): Promise<JobApplicationResult> {
@@ -70,11 +150,13 @@ export class JobApplier {
       case 'signin_page':
         if (extraction.details.toLowerCase().includes('linkedin')) {
           console.log('🔐 LinkedIn sign-in detected, attempting LinkedIn SSO...');
-          // return await this.handleLinkedInSignIn(job);
+          // TODO: Implement LinkedIn specific sign-in
+          return await this.handleSignInPage(job, extraction);
         } else {
           console.log('🔐 Non-LinkedIn sign-in detected, attempting standard sign-in...');
           return await this.handleSignInPage(job, extraction);
         }
+        
       case 'job_detail':
         return await this.handleJobDetailPage(job);
 
@@ -90,7 +172,7 @@ export class JobApplier {
   private async handleJobNotFound(job: Job): Promise<JobApplicationResult> {
     console.log(`❌ Job not found or expired: ${job.job_title}`);
     await this.page.screenshot({ path: `job_not_found_${job.company_name.replace(/\s+/g, '_')}.png` });
-    return { success: false, shouldRetry: false };
+    return { success: false, shouldRetry: false, message: 'Job not found or expired', fieldsFilled: [] };
   }
 
   private async handleSignInPage(job: Job, extraction: {pageType: string, details: string}): Promise<JobApplicationResult> {
@@ -104,7 +186,7 @@ export class JobApplier {
       return await this.handlePageType(postSignInExtraction.extraction, job);
     } catch (error) {
       console.error('🚫 Sign-in failed:', error);
-      return { success: false, shouldRetry: true };
+      return { success: false, shouldRetry: true, message: `Sign-in failed: ${error instanceof Error ? error.message : 'Unknown error'}`, fieldsFilled: [] };
     }
   }
 
@@ -141,10 +223,10 @@ export class JobApplier {
       if (fillResult.success) {
         await this.page.screenshot({ path: `application_completed_${job.company_name.replace(/\s+/g, '_')}.png` });
         console.log('✅ Application form completed successfully');
-        return { success: true, shouldRetry: false };
+        return { success: true, shouldRetry: false, message: 'Application completed successfully', fieldsFilled: fillResult.fieldsFilled || [] };
       } else {
         await this.page.screenshot({ path: `application_failed_${job.company_name.replace(/\s+/g, '_')}.png` });
-        return { success: false, shouldRetry: fillResult.shouldRetry };
+        return { success: false, shouldRetry: fillResult.shouldRetry, message: fillResult.message || 'Application form submission failed', fieldsFilled: fillResult.fieldsFilled || [] };
       }
     } catch (error) {
       console.error('🚫 Error handling application form:', error);
@@ -161,28 +243,62 @@ export class JobApplier {
   }
 
   private async fillApplicationForm(job: Job, parsedAnalysis: formPageAnalysis[]): Promise<JobApplicationResult> {
+    let fieldsFilled: string[] = [];
+    
     try {
       // Basic form filling logic - you can expand this based on your needs
       console.log('📝 Starting form fill process...', parsedAnalysis);
       const personalInfo = getPersonalInfoFromEnv();
-      // Fill form based on analysis
-      for (const field of parsedAnalysis) {
-        // analyse the description and fill accordingly wither basic info or resume upload
-        if(field.description.toLowerCase().includes('upload') || field.description.toLowerCase().includes('resume') || field.description.toLowerCase().includes('cv')) {
+      // Separate upload fields from other fields
+      // const uploadFields = parsedAnalysis.filter(field => 
+      //   field.description.toLowerCase().includes('upload') || 
+      //   field.description.toLowerCase().includes('resume') || 
+      //   field.description.toLowerCase().includes('cv') ||
+      //   field.description.toLowerCase().includes('file')
+      // );
+      
+      // // Fill basic info fields first
+      // const basicFields = await this.fillBasicInfo(personalInfo, parsedAnalysis);
+      // fieldsFilled = [...fieldsFilled, ...basicFields];
+      
+      // // Then handle file uploads
+      // if (uploadFields.length > 0) {
+      //   await this.uploadResume(parsedAnalysis);
+      //   fieldsFilled.push('Resume Upload');
+      // }
+
+      for(const field of parsedAnalysis) {
+        if (field.description.toLowerCase().includes('upload') ||
+            field.description.toLowerCase().includes('resume') ||
+            field.description.toLowerCase().includes('cv') ||
+            field.description.toLowerCase().includes('file')) {
           await this.uploadResume(parsedAnalysis);
+          fieldsFilled.push('Resume Upload');
         }else {
-          await this.fillBasicInfo(personalInfo, parsedAnalysis);
-          await this.handleFormErrors();
+          const filled = await this.fillBasicInfo(personalInfo, [field]);
+          fieldsFilled = [...fieldsFilled, ...filled];
+
         }
       }
+      
+      // Check for form errors after filling all fields
+      await this.handleFormErrors();
 
       // Observe page and check if it is a submit button or a continue/proceed button
       const observedElements = await this.page.observe("What buttons are available? List all buttons and their labels, if label is not in english add an english translation in bracket like a short word (e.g. Weiter (Continu))");
       console.log('🔍 Observed elements:', observedElements);
       // consider the case for continue or proceed button
-      const continueButton = observedElements.find((button: any) => button.description.toLowerCase().includes('continue') || button.description.toLowerCase().includes('proceed'));
+      const continueButton = observedElements.find((button: any) => 
+        button.description && (
+          button.description.toLowerCase().includes('continue') || 
+          button.description.toLowerCase().includes('proceed') ||
+          button.description.toLowerCase().includes('next')
+        )
+      );
+      
       if (continueButton) {
-        await this.page.act(`Click on the continue button: ${continueButton.description} selector ${continueButton.selector}`);
+        const selector = continueButton.selector || continueButton.selectors || '';
+        await this.page.act(`Click on the continue button: ${continueButton.description}${selector ? ` with selector ${selector}` : ''}`);
         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for submission to process
         console.log('✅ Continued to next step');
         const postNavigateToNextForm = await this.page.extract(extractJobDetailRules) as { extraction: string };
@@ -190,40 +306,49 @@ export class JobApplier {
       } else {
         // If no continue button, try to handle the page type again (might be a submit button)
         console.log('🔍 No continue button found, checking for submit button or final submission...');
+        // ensure all required fields has been fields and no form errors
+          await this.handleFormErrors();
+          // ensure all required fields are filled
+          fieldsFilled = [...fieldsFilled, ...(await this.fillBasicInfo(personalInfo, parsedAnalysis))];
         await this.submitApplication();
-        return { success: true, shouldRetry: false };
+        return { success: true, shouldRetry: false, message: 'Application submitted successfully', fieldsFilled };
       }
       
     } catch (error) {
       console.error('❌ Error filling application form:', error);
-      return { success: false, shouldRetry: true };
+      return { success: false, shouldRetry: true, message: `Form filling error: ${error instanceof Error ? error.message : 'Unknown error'}`, fieldsFilled };
     }
   }
 
-  private async fillBasicInfo(info: PersonalInfo, analysis: formPageAnalysis[]): Promise<void> {
+  private async fillBasicInfo(info: PersonalInfo, analysis: formPageAnalysis[]): Promise<string[]> {
+    const filledFields: string[] = [];
+    const { fieldMappings } = useApplierFiller();
     try {
       // This is a basic implementation - you might need to customize based on actual form fields
-     if(analysis.some(field => field.description.toLowerCase().includes('first name'))) {
-        await this.page.act(`Fill in the first name field with "${info.firstName}"`);
+      for (const field of analysis) {
+        // check if field is required and skip
+        if(!field.description.toLowerCase().includes('required')) {
+          continue;
+        }
+        const mapping = fieldMappings.find((m: FieldMapping) => m.keywords.some((keyword: string) => field.description.toLowerCase().includes(keyword)));
+        if (mapping) {
+          await this.page.act(mapping.instruction);
+          filledFields.push(mapping.label);
+        }else{
+          console.log(`⚠️ No mapping found for field: ${field.description}`);
+          // If no mapping is found, you might want to handle it differently
+          await this.page.act(`Fill in the ${field.description} with appropiate data using the personal info ${JSON.stringify(info)}`);
+          filledFields.push(field.description);
+        }
       }
-      if(analysis.some(field => field.description.toLowerCase().includes('last name'))) {
-        await this.page.act(`Fill in the last name field with "${info.lastName}"`);
-      }
-      if(analysis.some(field => field.description.toLowerCase().includes('email'))) {
-        await this.page.act(`Fill in the email field with "${info.email}"`);
-      }
-      if(analysis.some(field => field.description.toLowerCase().includes('phone'))) {
-        await this.page.act(`Fill in the phone number field with "${info.phone}". 
-          If there's a country code dropdown and it is not set to ${info.countryCode}, 
-          select the appropriate country code first.
-          then fill the phone number field with ${info.phoneWithoutCountryCode},
-           If the field doesn't accept the country code, try the ${info.phone}`);
-      }
-      console.log('✅ Basic information filled');
+
+      console.log(`✅ Basic information filled: ${filledFields.join(', ')}`);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.log('⚠️ Some basic fields could not be filled:', errorMessage);
     }
+    
+    return filledFields;
   }
 
   private async uploadResume(formAnalysis?: formPageAnalysis[]): Promise<void> {
@@ -358,9 +483,18 @@ export class JobApplier {
 
   private async submitApplication(): Promise<void> {
     try {
-      await this.page.act("Click the submit button or 'Submit Application' button to complete the application, click on submit  button or continue button to proceed");
+      await this.page.act(submtApplicationRules);
       console.log('✅ Application submitted');
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for submission to process
+      await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for submission to process
+      // check if submission was successful by observing the page and access and fix and resubmit if not
+      const submissionSuccess = await this.page.observe("Observe the page and determine if the application was submitted successfully. Look for confirmation messages, thank you notes, or any indication that the submission was successful.");
+      console.log('🔍 Submission success status:', submissionSuccess);
+      if (!submissionSuccess) {
+        // console.log('⚠️ Application submission failed, attempting to fix and resubmit...');
+        await this.handleFormErrors();
+        // await this.page.act(submtApplicationRules);
+        this.submitApplication();
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.log('⚠️ Could not submit application automatically:', errorMessage);
@@ -380,13 +514,41 @@ export class JobApplier {
       return;
     }
     for (const error of observedErrors) {
-      console.log(`⚠️ Form error detected: ${error.description}`);
-      // suggest fixes based on error description and do the act
-      await this.page.act(`Fix the form error: ${error.description} with the selector ${error.selector}`);
+      if (typeof error === 'object' && error.description) {
+        console.log(`⚠️ Form error detected: ${error.description}`);
+        // suggest fixes based on error description and do the act
+        const selector = error.selector || error.selectors || '';
+        await this.page.act(`Fix the form error: ${error.description}${selector ? ` with the selector ${selector}` : ''}`);
+      } else if (typeof error === 'string') {
+        console.log(`⚠️ Form error detected: ${error}`);
+        await this.page.act(`Fix the form error: ${error}`);
+      }
       console.log('Fixed the form error, attempting to resubmit...');
       await new Promise(resolve => setTimeout(resolve, 2000)); // Wait for fix to process
     }
     console.log('✅ Attempted to handle form errors');
     return;
+  }
+
+  private async takeScreenshot(fileName: string): Promise<string> {
+    try {
+      const screenshotDir = './screenshots';
+      const screenshotPath = `${screenshotDir}/${fileName}.png`;
+      
+      // Create screenshots directory if it doesn't exist
+      const fs = await import('fs/promises');
+      try {
+        await fs.access(screenshotDir);
+      } catch {
+        await fs.mkdir(screenshotDir, { recursive: true });
+      }
+      
+      await this.page.screenshot({ path: screenshotPath, fullPage: true });
+      console.log(`📸 Screenshot saved: ${screenshotPath}`);
+      return screenshotPath;
+    } catch (error) {
+      console.error('Error taking screenshot:', error);
+      return '';
+    }
   }
 }
