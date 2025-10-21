@@ -111,24 +111,24 @@ const projects =  [
     },
 ]
 export const getPersonalInfoFromEnv = (): PersonalInfo => ({
-  firstName: process.env.APPLICANT_FIRST_NAME || 'John',
-  lastName: process.env.APPLICANT_LAST_NAME || 'Doe',
-  email: process.env.APPLICANT_EMAIL || 'john.doe@example.com',
-  phone: process.env.APPLICANT_PHONE || '+2349019441762',
+  firstName: process.env.APPLICANT_FIRST_NAME || 'Abdulrazaq',
+  lastName: process.env.APPLICANT_LAST_NAME || 'Adewale',
+  email: process.env.APPLICANT_EMAIL || 'o.abdulrazaq.a@gmail.com',
+  phone: process.env.APPLICANT_PHONE || '+23490234567890',
   linkedinUrl: process.env.APPLICANT_LINKEDIN || 'https://linkedin.com/in/johndoe',
   resumePath: process.env.RESUME_PATH,
   countryCode: process.env.APPLICANT_COUNTRY_CODE || '+234',
   country: process.env.APPLICANT_COUNTRY || 'Nigeria',
-  phoneWithoutCountryCode: process.env.APPLICANT_PHONE_WITHOUT_COUNTRY_CODE || '9019441762',
+  phoneWithoutCountryCode: process.env.APPLICANT_PHONE_WITHOUT_COUNTRY_CODE || '90234567890',
   city: process.env.APPLICANT_CITY || 'Lagos',
   experienceLevel: process.env.APPLICANT_EXPERIENCE_LEVEL || 'Mid-level',
   educationLevel: process.env.APPLICANT_EDUCATION_LEVEL || 'Bachelor\'s Degree',
+  courseOfStudy: process.env.APPLICANT_COURSE_OF_STUDY || 'Mathematics and Computer Science',
   skills: process.env.APPLICANT_SKILLS ? process.env.APPLICANT_SKILLS.split(',').map(s => s.trim()) : ['JavaScript', 'TypeScript', 'Node.js'],
   portfolioUrl: process.env.APPLICANT_PORTFOLIO_URL || 'https://classydev.me',
   githubUrl: process.env.APPLICANT_GITHUB_URL || 'https://github.com/classyrazy',
   projects: JSON.stringify(projects),
   salaryRangeUsd: process.env.APPLICANT_SALARY_RANGE || '$50,000 - $70,000',
-  salaryRangeNaira: process.env.APPLICANT_SALARY_RANGE_NAIRA || '₦800,0000 - ₦1,200,0000',
-
+  salaryRangeNaira: process.env.APPLICANT_SALARY_RANGE_NAIRA || '₦800,000 - ₦1,200,000',
 });
 

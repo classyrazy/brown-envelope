@@ -17,7 +17,8 @@ export interface formPageAnalysis {
   description: string;
   method: string;
   arguments: string[];
-  selectors: string;
+  selectors?: string;
+  selector: string;
 }
 
 export interface PageExtraction {

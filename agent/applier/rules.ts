@@ -22,8 +22,8 @@ export const extractJobDetailRules = `
 `
 const signinDetails = {
   email: process.env.APPLICANT_EMAIL,
-  defaultPassword: process.env.DEFAULT_PASSWORD || 'Password123!',
-  linkedinPassword: process.env.LINKEDIN_PASSWORD || 'LinkedInPass123!'
+  defaultPassword: process.env.DEFAULT_PASSWORD || 'DefaultPassword123!',
+  linkedinPassword: process.env.LINKEDIN_PASSWORD || 'LinkedInPassword123!'
 }
 export const analyseAndSignInWithDetails = `
   You are on a sign-in page. Determine if you can sign in using just an email address (no password required).
@@ -65,6 +65,7 @@ export const submtApplicationRules = `Complete the job application submission by
       3. HANDLE DIFFERENT SCENARIOS:
          • If you see a confirmation dialog, click "Yes" or "Confirm"
          • If asked "Are you sure?", click "Yes" or "Submit"
+         • if there is an agreement/terms checkbox, check it first
          • If there's a terms/privacy checkbox that's unchecked, check it first
          • If the button is disabled, check for missing required fields or errors
 
@@ -86,3 +87,8 @@ export const submtApplicationRules = `Complete the job application submission by
 
       Be precise and only click the button that will actually submit/complete the application.
     `;
+    export const simpleTickNecessaryCheckBoxes = ` check If there are any unchecked terms/agreement checkboxes, check them`
+export const simpleSubmtApplicationRules = `Click the submit button or 'Submit Application' button to complete the application, click on submit  button or continue button to proceed`;
+
+export const NoMAppingFoundImprovisingRule = `
+`

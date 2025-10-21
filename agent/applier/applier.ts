@@ -1,8 +1,8 @@
 
-import { analyseAndSignInWithDetails, extractJobDetailRules, submtApplicationRules } from './rules.js';
+import { analyseAndSignInWithDetails, extractJobDetailRules, simpleSubmtApplicationRules, simpleTickNecessaryCheckBoxes, submtApplicationRules } from './rules.js';
 import { formPageAnalysis, Job, JobApplicationResult, JobProcessingResult, PersonalInfo } from '../types.js';
 import { getPersonalInfoFromEnv } from '../../utils/index.js';
-import { useApplierFiller, FieldMapping } from '../system/filler';
+import { useApplierFiller, FieldMapping } from '../system/filler.js';
 
 export class JobApplier {
   private page: any;
@@ -249,23 +249,7 @@ export class JobApplier {
       // Basic form filling logic - you can expand this based on your needs
       console.log('📝 Starting form fill process...', parsedAnalysis);
       const personalInfo = getPersonalInfoFromEnv();
-      // Separate upload fields from other fields
-      // const uploadFields = parsedAnalysis.filter(field => 
-      //   field.description.toLowerCase().includes('upload') || 
-      //   field.description.toLowerCase().includes('resume') || 
-      //   field.description.toLowerCase().includes('cv') ||
-      //   field.description.toLowerCase().includes('file')
-      // );
-      
-      // // Fill basic info fields first
-      // const basicFields = await this.fillBasicInfo(personalInfo, parsedAnalysis);
-      // fieldsFilled = [...fieldsFilled, ...basicFields];
-      
-      // // Then handle file uploads
-      // if (uploadFields.length > 0) {
-      //   await this.uploadResume(parsedAnalysis);
-      //   fieldsFilled.push('Resume Upload');
-      // }
+ 
 
       for(const field of parsedAnalysis) {
         if (field.description.toLowerCase().includes('upload') ||
@@ -275,13 +259,10 @@ export class JobApplier {
           await this.uploadResume(parsedAnalysis);
           fieldsFilled.push('Resume Upload');
         }else {
-          const filled = await this.fillBasicInfo(personalInfo, [field]);
+          const filled = await this.fillBasicInfo(personalInfo, field);
           fieldsFilled = [...fieldsFilled, ...filled];
-
         }
       }
-      
-      // Check for form errors after filling all fields
       await this.handleFormErrors();
 
       // Observe page and check if it is a submit button or a continue/proceed button
@@ -304,15 +285,32 @@ export class JobApplier {
         const postNavigateToNextForm = await this.page.extract(extractJobDetailRules) as { extraction: string };
         return await this.handlePageType(postNavigateToNextForm.extraction, job);
       } else {
-        // If no continue button, try to handle the page type again (might be a submit button)
+
         console.log('🔍 No continue button found, checking for submit button or final submission...');
-        // ensure all required fields has been fields and no form errors
-          await this.handleFormErrors();
-          // ensure all required fields are filled
-          fieldsFilled = [...fieldsFilled, ...(await this.fillBasicInfo(personalInfo, parsedAnalysis))];
-        await this.submitApplication();
-        return { success: true, shouldRetry: false, message: 'Application submitted successfully', fieldsFilled };
+        const submitButton = observedElements.find((button: any) =>
+          button.description && button.description.toLowerCase().includes('submit') ||
+          button.description.toLowerCase().includes('apply') ||
+          button.description.toLowerCase().includes('finish')
+        );
+        if (submitButton) {
+          console.log("Found submit button", submitButton)
+          await this.submitApplication(submitButton);
+          return { success: true, shouldRetry: false, message: 'Application submitted successfully', fieldsFilled };
+        }
+
+        // // ensure all required fields has been fields and no form errors
+        //   await this.handleFormErrors();
+        //   // ensure all required fields are filled
+        // const applicationNotSubmittedForm = await this.page.extract("Are there any required fields still unfilled or any form errors? List them.");
+        // await this.handlePageType(applicationNotSubmittedForm.extraction, job);
+        //   // fieldsFilled = [...fieldsFilled, ...(await this.fillBasicInfo(personalInfo, parsedAnalysis))];
+        //   await this.submitApplication();
+        // return { success: true, shouldRetry: false, message: 'Application submitted successfully', fieldsFilled };
       }
+
+      // If no continue or submit button is found, return failure
+      console.log('⚠️ No continue or submit button found');
+      return { success: false, shouldRetry: true, message: 'No continue or submit button found', fieldsFilled };
       
     } catch (error) {
       console.error('❌ Error filling application form:', error);
@@ -320,29 +318,34 @@ export class JobApplier {
     }
   }
 
-  private async fillBasicInfo(info: PersonalInfo, analysis: formPageAnalysis[]): Promise<string[]> {
+  private async fillBasicInfo(info: PersonalInfo, field: formPageAnalysis): Promise<string[]> {
     const filledFields: string[] = [];
     const { fieldMappings } = useApplierFiller();
     try {
       // This is a basic implementation - you might need to customize based on actual form fields
-      for (const field of analysis) {
+      // for (const field of analysis) {
         // check if field is required and skip
         if(!field.description.toLowerCase().includes('required')) {
-          continue;
+          await this.page.act(`Decide if filling this field will make the job application stronger, if not skip it, use the description ${field.description} to fill the field appropiately
+            give appropiate content based on the applicant information ${JSON.stringify(getPersonalInfoFromEnv())}`);
         }
         const mapping = fieldMappings.find((m: FieldMapping) => m.keywords.some((keyword: string) => field.description.toLowerCase().includes(keyword)));
+        console.log(`🔍 Field: ${field.description}, Mapping: ${mapping ? mapping.label : 'No mapping found'}`);
         if (mapping) {
           await this.page.act(mapping.instruction);
           filledFields.push(mapping.label);
         }else{
           console.log(`⚠️ No mapping found for field: ${field.description}`);
           // If no mapping is found, you might want to handle it differently
-          await this.page.act(`Fill in the ${field.description} with appropiate data using the personal info ${JSON.stringify(info)}`);
-          filledFields.push(field.description);
+          await this.page.act(`Fill in the ${field.description} with appropiate data using the personal info ${JSON.stringify(info)} or skip if not relevant,sometimes this might be a agree privacy policy and all checkbox 
+          Do well to check this `);
+          // filledFields.push(field.description);
         }
-      }
+      // }
+      console.log("All fields attempted to be filled", filledFields)
 
       console.log(`✅ Basic information filled: ${filledFields.join(', ')}`);
+      return filledFields;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.log('⚠️ Some basic fields could not be filled:', errorMessage);
@@ -481,15 +484,27 @@ export class JobApplier {
     }
   }
 
-  private async submitApplication(): Promise<void> {
+  private async submitApplication(buttonFound?: formPageAnalysis | null): Promise<void> {
+    console.log("Starting submission process...", {buttonFound})
     try {
-      await this.page.act(submtApplicationRules);
-      console.log('✅ Application submitted');
+      // await this.handleFormErrors();
+      // if(buttonFound) {
+      //   console.log("Submitting using observed button", buttonFound)
+      //   const selector = buttonFound.selector || buttonFound.selectors || '';
+      //   await this.page.act(`Click on the submit button: ${buttonFound.description}${selector ? ` with selector ${selector}` : ''}`);
+      // }else{
+        // checking for aggrement and all
+        await this.page.act(simpleTickNecessaryCheckBoxes)
+        console.log("Submitting using submit rules and not button found")
+      await this.page.act(simpleSubmtApplicationRules);
+      // await this.page.act(submtApplicationRules);
+      // }
+      console.log('✅ Application submitted finallyyy');
       await new Promise(resolve => setTimeout(resolve, 3000)); // Wait for submission to process
       // check if submission was successful by observing the page and access and fix and resubmit if not
       const submissionSuccess = await this.page.observe("Observe the page and determine if the application was submitted successfully. Look for confirmation messages, thank you notes, or any indication that the submission was successful.");
       console.log('🔍 Submission success status:', submissionSuccess);
-      if (!submissionSuccess) {
+      if (!submissionSuccess.length) {
         // console.log('⚠️ Application submission failed, attempting to fix and resubmit...');
         await this.handleFormErrors();
         // await this.page.act(submtApplicationRules);

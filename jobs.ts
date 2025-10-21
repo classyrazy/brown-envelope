@@ -1,5 +1,13 @@
 export const AvailableJobs = [
   {
+    job_title: "Software Developer",
+    company_name: "Nestoil",
+    job_url: "https://nestoilgroup.com/careers/software-developer-2/",
+    application_status: "Bookmarked",
+    date_applied: "",
+    notes: ""
+  },
+  {
     job_title: "Frontend engineer (website)",
     company_name: "Adapty",
     job_url: "https://adapty.io/careers/frontend-developer/",
