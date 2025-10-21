@@ -232,18 +232,8 @@ The system has been tested on various job platforms including:
 - ✅ Authentication flows
 
 ### Demo Video
-[📹 Watch Demo Video](https://drive.google.com/file/d/your-video-id)
+[📹 Watch Demo Video](https://drive.google.com/file/d/1QF6lQebONTPMLfue19A5rA8BCqhMrant/view?usp=sharing)
 *Link to Google Drive video demonstration*
-
-### Screenshots
-![Application Process](./docs/images/application-process.png)
-*Example of the automation process in action*
-
-![Success Report](./docs/images/success-report.png)
-*Sample success report with analytics*
-
-![Error Handling](./docs/images/error-handling.png)
-*Error detection and recovery demonstration*
 
 ## 🛠️ Advanced Configuration
 
